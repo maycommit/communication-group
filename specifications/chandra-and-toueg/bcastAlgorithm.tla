@@ -1,0 +1,5 @@
+---- MODULE bcastAlgorithm ----
+EXTENDS TLC
+
+
+====
