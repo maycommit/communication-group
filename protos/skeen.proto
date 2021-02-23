@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package protos;
+
+service Skeen {
+  rpc JoinNode(JoinNodeRequest) returns (JoinNodeResponse);
+  rpc SendMessage(SendMessageRequest) returns (Any);
+  rpc SendStamppedMessage(SendStamppedMessageRequest) returns (Any);
+}
+
+message SendMessageRequest {
+  string message = 1;
+}
+
+message SendStamppedMessageRequest {
+  string message = 1;
+  int64 timestamp = 2;
+}
+
+
+message Member {
+  string id = 1;
+  string host = 2;
+}
+
+
+message JoinNodeRequest {
+  Member member = 1;
+}
+
+
+message JoinNodeResponse {
+  repeated Member members = 1;
+}
+
+message Any {}

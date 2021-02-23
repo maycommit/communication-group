@@ -21,16 +21,16 @@ Init ==
   /\ stamped = [ i \in Processes |-> {}]
   /\ received = [i \in Processes |-> {}]
   /\ deliverable = [i \in Processes |-> {}]
-  /\ pc \in [Processes -> {"BCAST", "MEMBER"}]
+  /\ pc \in [Processes -> {"BCAST", ""}]
   /\ LC \in [Processes -> {0}]
   /\ sentM = {}
   /\ sentTS = {}
 
-Broadcast(self) ==
-  /\ pc[self] = "BCAST"
-  /\ pc' = [pc EXCEPT  ![self] = "WAITING"]
-  /\ sentM' = sentM \cup {<<self, "SKEENS">>}
-  /\ UNCHANGED << stamped, received, LC, sentTS, deliverable >>
+UpponBCAST(self) ==
+    /\ pc[self = "BCAST"]
+    /\ pc' = [pc EXCEPT  ![self] = "PENDING"]
+    /\ sentM' = sentM \cup {<<self, "MESSAGE">>}
+    /\ UNCHANGED << stamped, received, LC, sentTS, deliverable >>
 
 ReceivedMessage(self) ==
     /\ \E msg \in sentM:
