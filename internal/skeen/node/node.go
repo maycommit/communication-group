@@ -1,11 +1,12 @@
 package node
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"net"
 	"os"
-	"time"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/maycommit/communication-group/protos"
@@ -14,38 +15,31 @@ import (
 
 type Node struct {
 	protos.SkeenServer
-	ID    uuid.UUID
-	Group map[uuid.UUID]string
+	ID               uuid.UUID
+	Host             string
+	Group            map[uuid.UUID]string
+	LogicalClock     int64
+	ReceivedMessages []StamppedMessage
+	StamppedMessages []StamppedMessage
 }
 
-func New() (Node, error) {
-	node := Node{
+func New() (*Node, error) {
+	node := &Node{
 		ID:    uuid.New(),
+		Host:  os.Getenv("HOST"),
 		Group: map[uuid.UUID]string{},
 	}
 
 	if os.Getenv("MASTER") != "" {
 		err := node.Join()
 		if err != nil {
-			return Node{}, err
+			return &Node{}, err
 		}
 	} else {
-		node.Group[node.ID] = os.Getenv("HOST")
+		node.Group[node.ID] = node.Host
 	}
 
 	return node, nil
-}
-
-func (node Node) NewGrpcClient(address string) (protos.SkeenClient, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	conn, err := grpc.DialContext(ctx, address)
-	if err != nil {
-		return nil, err
-	}
-
-	return protos.NewSkeenClient(conn), nil
 }
 
 func (node *Node) Join() error {
@@ -79,15 +73,29 @@ func (node *Node) Join() error {
 }
 
 func (node Node) Start() error {
-	lis, err := net.Listen("tcp", os.Getenv("HOST"))
+	lis, err := net.Listen("tcp", node.Host)
 	if err != nil {
 		return err
 	}
 
 	grpcServer := grpc.NewServer()
 
-	protos.RegisterSkeenServer(grpcServer, node)
+	protos.RegisterSkeenServer(grpcServer, &node)
 
 	fmt.Printf("Start node on %s...\n", os.Getenv("HOST"))
-	return grpcServer.Serve(lis)
+	go grpcServer.Serve(lis)
+
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Println("\n==== COMMANDS ====")
+		fmt.Printf("b: BROADCAST\nq: QUIT\n")
+		command, _ := reader.ReadString('\n')
+		command = strings.Replace(command, "\n", "", -1)
+		switch command {
+		case "b":
+			fmt.Println("BROADCAST")
+		case "q":
+			os.Exit(0)
+		}
+	}
 }

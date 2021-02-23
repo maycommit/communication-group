@@ -1,0 +1,326 @@
+package node
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"net"
+	"os"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/maycommit/communication-group/protos"
+	"google.golang.org/grpc"
+)
+
+type StamppedMessage struct {
+	Id        string
+	Message   string
+	Timestamp int64
+}
+
+type Node struct {
+	protos.SkeenServer
+	ID               uuid.UUID
+	Group            map[uuid.UUID]string
+	SentMap          map[string][]StamppedMessage
+	ReceivedMap      map[string][]StamppedMessage
+	ReceivedMessages []StamppedMessage
+	StamppedMessages []StamppedMessage
+	LogicalClock     int64
+}
+
+func New() (*Node, error) {
+	node := &Node{
+		ID:               uuid.New(),
+		Group:            map[uuid.UUID]string{},
+		ReceivedMessages: []StamppedMessage{},
+		StamppedMessages: []StamppedMessage{},
+		SentMap:          map[string][]StamppedMessage{},
+		ReceivedMap:      map[string][]StamppedMessage{},
+		LogicalClock:     0,
+	}
+
+	if os.Getenv("MASTER") != "" {
+		err := node.Join()
+		if err != nil {
+			return &Node{}, err
+		}
+	} else {
+		node.Group[node.ID] = os.Getenv("HOST")
+	}
+
+	return node, nil
+}
+
+func (node Node) NewGrpcClient(address string) (protos.SkeenClient, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	opts := []grpc.DialOption{
+		grpc.WithBlock(),
+		grpc.WithTimeout(10 * time.Second),
+		grpc.FailOnNonTempDialError(true),
+		grpc.WithInsecure(),
+	}
+
+	conn, err := grpc.DialContext(ctx, address, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return protos.NewSkeenClient(conn), nil
+}
+
+func (node *Node) Join() error {
+	conn, err := node.NewGrpcClient(os.Getenv("MASTER"))
+	if err != nil {
+		return err
+	}
+
+	req := &protos.JoinNodeRequest{
+		Member: &protos.Member{
+			Id:   node.ID.String(),
+			Host: os.Getenv("HOST"),
+		},
+	}
+
+	resp, err := conn.JoinNode(context.Background(), req)
+	if err != nil {
+		return err
+	}
+
+	for _, m := range resp.Members {
+		uuid, err := uuid.Parse(m.Id)
+		if err != nil {
+			return err
+		}
+
+		node.Group[uuid] = m.Host
+	}
+
+	return nil
+}
+
+func (node Node) Start() error {
+	lis, err := net.Listen("tcp", os.Getenv("HOST"))
+	if err != nil {
+		return err
+	}
+
+	grpcServer := grpc.NewServer()
+
+	protos.RegisterSkeenServer(grpcServer, &node)
+
+	go func() {
+		for {
+			time.Sleep(5 * time.Second)
+			message := &protos.SendMessageRequest{
+				Id:      uuid.NewString(),
+				Owner:   node.ID.String(),
+				Message: "MESSAGE: " + time.Now().String(),
+			}
+
+			err := node.Broadcast(func(conn protos.SkeenClient) error {
+
+				_, err := conn.SendMessage(context.Background(), message)
+
+				node.SentMap[message.Id] = append(node.SentMap[message.Id], StamppedMessage{
+					Id:      message.Id,
+					Message: message.Message,
+				})
+
+				if err != nil {
+					return err
+				}
+
+				return nil
+			})
+
+			if err != nil {
+				panic(err)
+			}
+		}
+	}()
+
+	fmt.Printf("Start node on %s...\n", os.Getenv("HOST"))
+	return grpcServer.Serve(lis)
+}
+
+func (node *Node) JoinNode(ctx context.Context, request *protos.JoinNodeRequest) (*protos.JoinNodeResponse, error) {
+	if request == nil {
+		return nil, errors.New("Invalid member")
+	}
+
+	member := request.Member
+
+	uuid, err := uuid.Parse(member.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	node.Group[uuid] = member.Host
+
+	response := protos.JoinNodeResponse{Members: []*protos.Member{}}
+
+	for uuid, host := range node.Group {
+		response.Members = append(response.Members, &protos.Member{
+			Id:   uuid.String(),
+			Host: host,
+		})
+	}
+
+	return &response, nil
+}
+
+func (node Node) Broadcast(cb func(conn protos.SkeenClient) error) error {
+	for id, host := range node.Group {
+		if node.ID == id {
+			continue
+		}
+
+		conn, err := node.NewGrpcClient(host)
+		if err != nil {
+			return err
+		}
+
+		err = cb(conn)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (node *Node) SendMessage(ctx context.Context, request *protos.SendMessageRequest) (*protos.Any, error) {
+	timestamp := node.LogicalClock
+
+	node.ReceivedMessages = append(node.ReceivedMessages, StamppedMessage{
+		Id:        request.Id,
+		Message:   request.Message,
+		Timestamp: timestamp,
+	})
+
+	err := node.Broadcast(func(conn protos.SkeenClient) error {
+		_, err := conn.SendStamppedMessage(context.Background(), &protos.SendStamppedMessageRequest{
+			Id:        request.Id,
+			Owner:     node.ID.String(),
+			Message:   request.Message,
+			Timestamp: timestamp,
+		})
+
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return &protos.Any{}, err
+	}
+
+	node.LogicalClock += 1
+	return &protos.Any{}, nil
+}
+
+func max(values ...int64) int64 {
+	var max int64
+	for _, value := range values {
+		if value > max {
+			max = value
+		}
+	}
+
+	return max
+}
+
+func (node Node) verifyReceivedMessageFromAllDestinations(messageId string) bool {
+	sent := node.SentMap[messageId]
+	received := node.ReceivedMap[messageId]
+
+	return len(sent) == len(received)
+}
+
+func getTimestamps(sendStamppedMessages []StamppedMessage) []int64 {
+	timestamps := []int64{}
+
+	for _, s := range sendStamppedMessages {
+		timestamps = append(timestamps, s.Timestamp)
+	}
+
+	return timestamps
+}
+
+func filterStamppedMessagesById(list []StamppedMessage, messageId string) []StamppedMessage {
+	filteredMessages := []StamppedMessage{}
+
+	for _, s := range list {
+		if s.Id != messageId {
+			filteredMessages = append(filteredMessages, s)
+		}
+	}
+
+	return filteredMessages
+}
+
+func filterStamppedMessagesDeliverable(list []StamppedMessage, deliverable []StamppedMessage) []StamppedMessage {
+	filteredMessages := []StamppedMessage{}
+
+	for _, s := range list {
+		for _, sj := range deliverable {
+			if s.Id != sj.Id {
+				filteredMessages = append(filteredMessages, s)
+			}
+		}
+	}
+
+	return filteredMessages
+}
+
+func (node *Node) SendStamppedMessage(ctx context.Context, request *protos.SendStamppedMessageRequest) (*protos.Any, error) {
+	node.LogicalClock = max(request.Timestamp, node.LogicalClock+1)
+	node.ReceivedMap[request.Id] = append(node.ReceivedMap[request.Id], StamppedMessage{
+		Id:        request.Id,
+		Message:   request.Message,
+		Timestamp: request.Timestamp,
+	})
+
+	log.Println("RECEIVED MAP ", node.ReceivedMap)
+
+	if node.verifyReceivedMessageFromAllDestinations(request.Id) {
+		sq := max(getTimestamps(node.ReceivedMap[request.Id])...)
+
+		node.StamppedMessages = append(node.StamppedMessages, StamppedMessage{
+			Id:        request.Id,
+			Message:   request.Message,
+			Timestamp: sq,
+		})
+
+		// node.ReceivedMessages = filterStamppedMessagesById(node.ReceivedMessages, request.Id)
+		deliverable := []StamppedMessage{}
+
+		for _, mi := range node.StamppedMessages {
+			for _, mj := range node.ReceivedMessages {
+				if mi.Timestamp < mj.Timestamp {
+					deliverable = append(deliverable, StamppedMessage{
+						Id:        mi.Id,
+						Message:   mi.Message,
+						Timestamp: mi.Timestamp,
+					})
+				}
+			}
+		}
+
+		// TODO: deliver all messages in deliverable in incresing order of (sn(m), sender(m))
+
+		fmt.Println("DELIVERABLE: ", deliverable)
+		node.StamppedMessages = filterStamppedMessagesDeliverable(node.StamppedMessages, deliverable)
+		delete(node.ReceivedMap, request.Id)
+		delete(node.SentMap, request.Id)
+	}
+
+	return &protos.Any{}, nil
+}

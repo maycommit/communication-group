@@ -19,7 +19,10 @@ func init() {
 }
 
 func main() {
-	node := node.New()
+	node, err := node.New()
+	if err != nil {
+		panic(err)
+	}
 
 	log.Fatalln(node.Start())
 }
