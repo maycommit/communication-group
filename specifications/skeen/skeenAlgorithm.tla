@@ -15,7 +15,7 @@ vars  == << stamped, received, LC, deliverable, pc, sentM, sentTS >>
 *)
 
 Processes == 1 .. PROCESS_NUMBER
-Message == {"SKEENS"}
+Message == {"MESSAGE"}
 
 Init ==
   /\ stamped = [ i \in Processes |-> {}]
@@ -27,34 +27,39 @@ Init ==
   /\ sentTS = {}
 
 UpponBCAST(self) ==
-    /\ pc[self = "BCAST"]
+    /\ pc[self] = "BCAST"
     /\ pc' = [pc EXCEPT  ![self] = "PENDING"]
     /\ sentM' = sentM \cup {<<self, "MESSAGE">>}
     /\ UNCHANGED << stamped, received, LC, sentTS, deliverable >>
 
-ReceivedMessage(self) ==
-    /\ \E msg \in sentM:
-        /\ msg \notin received[self]
-        /\ received' = [received EXCEPT ![self] = received[self] \cup {msg}]
-        /\ sentTS' = sentTS \cup {<<self, "SKEENS", LC[self]>>}
+UpponTimestamps(self) ==
+    /\ pc[self] # "BCAST"
+    /\ \A i \in sentM:
+        /\ received' = [received EXCEPT ![self] = received[self] \cup {<<i[1], LC[self]>>} ]
+        /\ sentTS' = sentTS \cup {<<self, "MESSAGE", LC[self], i[1]>>}
         /\ LC' = [LC EXCEPT  ![self] = LC[self] + 1]
-        /\ UNCHANGED << stamped, received, sentM, pc, deliverable >>
 
-ReceivesMessageAndTimestamp(self) ==
-    /\ pc[self] = "WAITING"
-    /\ \E msg \in sentTS:
-        /\
+\* ReceivedMessage(self) ==
+\*     /\ \E msg \in sentM:
+\*         /\ msg \notin received[self]
+\*         /\ received' = [received EXCEPT ![self] = received[self] \cup {msg}]
+\*         /\ sentTS' = sentTS \cup {<<self, "SKEENS", LC[self]>>}
+\*         /\ LC' = [LC EXCEPT  ![self] = LC[self] + 1]
+\*         /\ UNCHANGED << stamped, received, sentM, pc, deliverable >>
+
+\* ReceivesMessageAndTimestamp(self) ==
+\*     /\ pc[self] = "WAITING"
+\*     /\ \E msg \in sentTS: 
 
 Step(self) ==
-  \/ Broadcast(self)
-  \/ ReceivedMessage(self)
+  \/ UpponBCAST(self)
+  \/ UpponTimestamps(self)
   \/ UNCHANGED << stamped, received, pc, LC, sentM, sentTS, deliverable >>
 
 Next == (\E p \in Processes: Step(p))
 
 Spec == Init /\ [][Next]_vars
-             /\ WF_vars(\E p \in Processes: /\ ReceivedMessage(p)
-                                            /\ \/ Broadcast(p)
-                                               \/ UNCHANGED << stamped, received, pc, LC, sentM, sentTS, deliverable >>)
+             /\ WF_vars(\E p \in Processes: \/ Broadcast(p)
+                                            \/ UNCHANGED << stamped, received, pc, LC, sentM, sentTS, deliverable >>)
 
 ====
