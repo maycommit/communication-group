@@ -6,7 +6,7 @@ require (
 	github.com/golang/protobuf v1.4.3
 	github.com/google/uuid v1.2.0
 	github.com/labstack/echo/v4 v4.2.0 // indirect
-	github.com/thoas/go-funk v0.7.0 // indirect
+	github.com/thoas/go-funk v0.7.0
 	golang.org/x/net v0.0.0-20210222171744-9060382bd457 // indirect
 	golang.org/x/sys v0.0.0-20210220050731-9a76102bfb43 // indirect
 	golang.org/x/text v0.3.5 // indirect

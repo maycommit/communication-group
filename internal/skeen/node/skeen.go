@@ -12,6 +12,7 @@ import (
 type StamppedMessage struct {
 	ID        string
 	Message   string
+	Owner     string
 	Timestamp int64
 }
 
@@ -48,12 +49,13 @@ func (node *Node) SendMessage(ctx context.Context, request *protos.SendMessageRe
 		ID:        request.Id,
 		Message:   request.Message,
 		Timestamp: timestamp,
+		Owner:     request.Owner,
 	})
 
 	err := node.Broadcast(func(conn protos.SkeenClient) error {
 		_, err := conn.SendStamppedMessage(context.Background(), &protos.SendStamppedMessageRequest{
 			Id:        request.Id,
-			Owner:     node.ID.String(),
+			Owner:     node.Host,
 			Message:   request.Message,
 			Timestamp: timestamp,
 		})
@@ -75,5 +77,71 @@ func (node *Node) SendMessage(ctx context.Context, request *protos.SendMessageRe
 
 func (node *Node) SendStamppedMessage(ctx context.Context, request *protos.SendStamppedMessageRequest) (*protos.Any, error) {
 	node.LogicalClock = funk.MaxInt64([]int64{request.Timestamp, node.LogicalClock + 1}).(int64)
+	node.ReceivedBuffer[request.Id] = append(node.ReceivedBuffer[request.Id], StamppedMessage{
+		ID:        request.Id,
+		Message:   request.Message,
+		Timestamp: request.Timestamp,
+		Owner:     request.Owner,
+	})
+
+	if len(node.ReceivedBuffer[request.Id]) == len(node.Group) {
+		allTimestamps := funk.Map(node.ReceivedBuffer[request.Id], func(st StamppedMessage) int64 {
+			return st.Timestamp
+		}).([]int64)
+		sn := funk.MaxInt64(allTimestamps).(int64)
+
+		node.StamppedMessages = append(node.StamppedMessages, StamppedMessage{
+			ID:        request.Id,
+			Message:   request.Message,
+			Timestamp: sn,
+		})
+
+		node.ReceivedMessages = funk.Filter(node.ReceivedMessages, func(s StamppedMessage) bool {
+			return s.ID != request.Id
+		}).([]StamppedMessage)
+
+		node.Deliverable = []StamppedMessage{}
+		for _, mi := range node.StamppedMessages {
+			for _, mj := range node.ReceivedMessages {
+				if mi.Timestamp < mj.Timestamp {
+					node.Deliverable = append(node.Deliverable, StamppedMessage{
+						ID:        mi.ID,
+						Message:   mi.Message,
+						Timestamp: mi.Timestamp,
+					})
+				}
+			}
+		}
+
+		err := node.Broadcast(func(conn protos.SkeenClient) error {
+			for _, d := range node.Deliverable {
+				_, err := node.SendStamppedMessage(context.TODO(), &protos.SendStamppedMessageRequest{
+					Id:        d.ID,
+					Message:   d.Message,
+					Owner:     d.Owner,
+					Timestamp: d.Timestamp,
+				})
+
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
+		})
+		if err != nil {
+			return &protos.Any{}, nil
+		}
+
+		stamppedDiff, _ := funk.Difference(node.StamppedMessages, node.Deliverable)
+		node.StamppedMessages = stamppedDiff.([]StamppedMessage)
+
+		// node.StamppedMessages = funk.Filter(node.StamppedMessages, func(st StamppedMessage) bool {
+		// 	return !funk.Contains(deliverable, st.ID)
+		// }).([]StamppedMessage)
+
+		delete(node.ReceivedBuffer, request.Id)
+	}
+
 	return &protos.Any{}, nil
 }

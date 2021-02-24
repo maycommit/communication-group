@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/maycommit/communication-group/protos"
@@ -28,16 +29,17 @@ func (node Node) NewGrpcClient(address string) (protos.SkeenClient, error) {
 }
 
 func (node Node) Broadcast(cb func(conn protos.SkeenClient) error) error {
-	for id, host := range node.Group {
-		if node.ID == id {
-			continue
-		}
+	for _, host := range node.Group {
+		// if node.Host == host {
+		// 	continue
+		// }
 
 		conn, err := node.NewGrpcClient(host)
 		if err != nil {
 			return err
 		}
 
+		log.Println("TRIGGER CALLBACK FOR HOST: ", host)
 		err = cb(conn)
 		if err != nil {
 			return err
