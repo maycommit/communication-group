@@ -3,9 +3,9 @@ EXTENDS TLC, Naturals, FiniteSets
 
 CONSTANTS PROCESS_NUMBER
 
-VARIABLES stamped, received, LC, deliverable, pc, sentM, sentTS
+VARIABLES stamped, received, LC, deliverable, pc, sentM, sentTS, sequenceNumber
 
-vars  == << stamped, received, LC, deliverable, pc, sentM, sentTS >>
+vars  == << stamped, received, LC, deliverable, pc, sentM, sentTS, sequenceNumber >>
 
 (*
     PC STATES:
@@ -30,32 +30,42 @@ Init ==
   /\ LC \in [Processes -> {0}]
   /\ sentM = {}
   /\ sentTS = {}
+  /\ sequenceNumber = 0
 
 UpponBCAST(self) ==
     /\ pc[self] = "BCAST"
     /\ sentM' = sentM \cup {<<self, "MESSAGE">>}
     /\ pc' = [pc EXCEPT  ![self] = "PENDING"]
-    /\ UNCHANGED << stamped, deliverable, sentTS, LC, received >>
+    /\ UNCHANGED << stamped, deliverable, sentTS, LC, received, sequenceNumber >>
 
     
 ReceivedMessage(self) ==
     /\ sentM # {}
     /\ \E msg \in sentM: 
-        /\ received' = [received EXCEPT ![self] = received[self] \cup {<<msg[1], LC[self]>>}]
+        /\ received' = [received EXCEPT ![self] = received[self] \cup {<<msg[1], msg[2], LC[self]>>}]
         /\ sentTS' = sentTS \cup {<<self, "MESSAGE", LC[self], msg[1]>>}
     \* /\ LC' = [LC EXCEPT  ![self] = LC[self] + 1]
-    /\ UNCHANGED << stamped, pc, deliverable, sentM, LC >>
+    /\ UNCHANGED << stamped, pc, deliverable, sentM, LC, sequenceNumber >>
+
 
 ReceivedStamppedMessage(self) ==
     /\ pc[self] = "PENDING" /\ PROCESS_NUMBER = Cardinality({x \in sentTS: x[4] = self})
     /\ Print(Max({x \in sentTS: x[4] = self}), TRUE)
-    /\ UNCHANGED << stamped, sentM, sentTS, pc, LC, deliverable, received >>
+    /\ sentTS' = sentTS \ {x \in sentTS: x[4] = self}
+    /\ sequenceNumber' = Max({x \in sentTS: x[4] = self})[3]
+    /\ stamped' = [stamped EXCEPT ![self] = stamped[self] \cup {<<self, "MESSAGE", sequenceNumber>>}]
+    /\ \A mi \in {x \in stamped[self]: x[4] = self}:
+        /\ \A mii \in received[self]: mi[3] < mii[3]
+        /\ deliverable' = [deliverable EXCEPT ![self] = deliverable[self] \cup {mi}]
+    /\ \A msg \in deliverable[self]: /\ sentM' = sentM \cup {<<self, "MESSAGE">>}
+    /\ stamped' = [stamped EXCEPT ![self] = stamped[self] \ deliverable[self]]
+    /\ UNCHANGED << stamped, sentM, pc, LC, deliverable, received >>
 
 Step(self) ==
     \/ UpponBCAST(self)
     \/ ReceivedMessage(self)
     \/ ReceivedStamppedMessage(self)
-    \/ UNCHANGED << stamped, received, pc, sentM, sentTS, LC, deliverable >>
+    \/ UNCHANGED << stamped, received, pc, sentM, sentTS, LC, deliverable, sequenceNumber >>
 
 Next == (\E p \in Processes: Step(p))
 

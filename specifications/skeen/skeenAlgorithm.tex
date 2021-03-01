@@ -937,15 +937,15 @@
 \begin{document}
 \tlatex
 \@x{}\moduleLeftDash\@xx{ {\MODULE} skeenAlgorithm}\moduleRightDash\@xx{}%
-\@x{ {\EXTENDS} TLC ,\, Naturals}%
+\@x{ {\EXTENDS} TLC ,\, Naturals ,\, FiniteSets}%
 \@pvspace{8.0pt}%
 \@x{ {\CONSTANTS} PROCESS\_NUMBER}%
 \@pvspace{8.0pt}%
  \@x{ {\VARIABLES} stamped ,\, received ,\, LC ,\, deliverable ,\, pc ,\,
- sentM ,\, sentTS}%
+ sentM ,\, sentTS ,\, sequenceNumber}%
 \@pvspace{8.0pt}%
  \@x{ vars\@s{4.1} \.{\defeq} {\langle} stamped ,\, received ,\, LC ,\,
- deliverable ,\, pc ,\, sentM ,\, sentTS {\rangle}}%
+ deliverable ,\, pc ,\, sentM ,\, sentTS ,\, sequenceNumber {\rangle}}%
 \@pvspace{8.0pt}%
 \begin{lcom}{10.0}%
 \begin{cpar}{0}{F}{F}{0}{0}{}%
@@ -957,8 +957,13 @@
  \ensuremath{WAITING \.{=} p} waiting
 \end{cpar}%
 \end{lcom}%
+\@x{ {\ASSUME} PROCESS\_NUMBER \.{\in} Nat}%
+\@pvspace{8.0pt}%
 \@x{ Processes \.{\defeq} 1 \.{\dotdot} PROCESS\_NUMBER}%
 \@x{ Message \.{\defeq} \{\@w{MESSAGE} \}}%
+\@pvspace{8.0pt}%
+ \@x{ Max ( S ) \.{\defeq} {\CHOOSE} t \.{\in} S \.{:} \A\, s \.{\in} S \.{:}
+ t [ 3 ] \.{\geq} s [ 3 ]}%
 \@pvspace{8.0pt}%
 \@x{ Init \.{\defeq}}%
  \@x{\@s{8.2} \.{\land} stamped \.{=} [ i \.{\in} Processes \.{\mapsto} \{ \}
@@ -972,6 +977,7 @@
 \@x{\@s{8.2} \.{\land} LC \.{\in} [ Processes \.{\rightarrow} \{ 0 \} ]}%
 \@x{\@s{8.2} \.{\land} sentM \.{=} \{ \}}%
 \@x{\@s{8.2} \.{\land} sentTS \.{=} \{ \}}%
+\@x{\@s{8.2} \.{\land} sequenceNumber \.{=} 0}%
 \@pvspace{8.0pt}%
 \@x{ UpponBCAST ( self ) \.{\defeq}}%
 \@x{\@s{16.4} \.{\land} pc [ self ] \.{=}\@w{BCAST}}%
@@ -979,42 +985,63 @@
  ,\,\@w{MESSAGE} {\rangle} \}}%
  \@x{\@s{16.4} \.{\land} pc \.{'} \.{=} [ pc {\EXCEPT}\@s{4.1} {\bang} [ self
  ] \.{=}\@w{PENDING} ]}%
-\@x{\@s{16.4} \.{\land} stamped \.{'} \.{=} stamped}%
-\@x{\@s{16.4} \.{\land} deliverable \.{'} \.{=} deliverable}%
-\@x{\@s{16.4} \.{\land} sentTS \.{'} \.{=} sentTS}%
-\@x{\@s{16.4} \.{\land} LC \.{'} \.{=}\@s{4.1} LC}%
-\@pvspace{8.0pt}%
-\@x{ ReceivedMessageExpression ( self ,\, i ) \.{\defeq}}%
- \@x{\@s{16.4} \.{\land} received \.{'} \.{=} [ received {\EXCEPT} {\bang} [
- self ] \.{=} received [ self ] \.{\cup} \{ {\langle} i [ 1 ] ,\, LC [ self ]
- {\rangle} \} ]}%
- \@x{\@s{16.4} \.{\land} sentTS \.{'} \.{=} sentTS \.{\cup} \{ {\langle} self
- ,\,\@w{MESSAGE} ,\, LC [ self ] ,\, i [ 1 ] {\rangle} \}}%
+ \@x{\@s{16.4} \.{\land} {\UNCHANGED} {\langle} stamped ,\, deliverable ,\,
+ sentTS ,\, LC ,\, received ,\, sequenceNumber {\rangle}}%
 \@pvspace{16.0pt}%
 \@x{ ReceivedMessage ( self ) \.{\defeq}}%
- \@x{\@s{16.4} \.{\land} \A\, i \.{\in} sentM \.{:} ReceivedMessageExpression
- ( self ,\, i )}%
- \@x{\@s{16.4} \.{\land} LC \.{'} \.{=} [ LC {\EXCEPT}\@s{4.1} {\bang} [ self
- ] \.{=} LC [ self ] \.{+} 1 ]}%
-\@x{\@s{16.4} \.{\land} stamped \.{'} \.{=} stamped}%
-\@x{\@s{16.4} \.{\land} pc \.{'} \.{=} pc}%
-\@x{\@s{16.4} \.{\land} deliverable \.{'} \.{=} deliverable}%
-\@x{\@s{16.4} \.{\land} sentM \.{'} \.{=} sentM}%
+\@x{\@s{16.4} \.{\land} sentM \.{\neq} \{ \}}%
+\@x{\@s{16.4} \.{\land} \E\, msg \.{\in} sentM \.{:}}%
+ \@x{\@s{31.61} \.{\land} received \.{'} \.{=} [ received {\EXCEPT} {\bang} [
+ self ] \.{=} received [ self ] \.{\cup} \{ {\langle} msg [ 1 ] ,\, msg [ 2 ]
+ ,\, LC [ self ] {\rangle} \} ]}%
+ \@x{\@s{31.61} \.{\land} sentTS \.{'} \.{=} sentTS \.{\cup} \{ {\langle} self
+ ,\,\@w{MESSAGE} ,\, LC [ self ] ,\, msg [ 1 ] {\rangle} \}}%
+\@x{\@s{16.4}}%
+\@y{\@s{0}%
+ \ensuremath{\.{\land} LC\.{'} \.{=}} [\ensuremath{LC} \ensuremath{{\EXCEPT}
+ {\bang}[self] \.{=} LC[self]} + 1]
+}%
+\@xx{}%
+ \@x{\@s{16.4} \.{\land} {\UNCHANGED} {\langle} stamped ,\, pc ,\, deliverable
+ ,\, sentM ,\, LC ,\, sequenceNumber {\rangle}}%
+\@pvspace{16.0pt}%
+\@x{ ReceivedStamppedMessage ( self ) \.{\defeq}}%
+ \@x{\@s{16.4} \.{\land} pc [ self ] \.{=}\@w{PENDING} \.{\land}
+ PROCESS\_NUMBER \.{=} Cardinality ( \{ x \.{\in} sentTS \.{:} x [ 4 ] \.{=}
+ self \} )}%
+ \@x{\@s{16.4} \.{\land} Print ( Max ( \{ x \.{\in} sentTS \.{:} x [ 4 ] \.{=}
+ self \} ) ,\, {\TRUE} )}%
+ \@x{\@s{16.4} \.{\land} sentTS \.{'} \.{=} sentTS \.{\,\backslash\,} \{ x
+ \.{\in} sentTS \.{:} x [ 4 ] \.{=} self \}}%
+ \@x{\@s{16.4} \.{\land} sequenceNumber \.{'} \.{=} Max ( \{ x \.{\in} sentTS
+ \.{:} x [ 4 ] \.{=} self \} ) [ 3 ]}%
+ \@x{\@s{16.4} \.{\land} stamped \.{'} \.{=} [ stamped {\EXCEPT} {\bang} [
+ self ] \.{=} stamped [ self ] \.{\cup} \{ {\langle} self ,\,\@w{MESSAGE} ,\,
+ sequenceNumber {\rangle} \} ]}%
+ \@x{\@s{16.4} \.{\land} \A\, mi \.{\in} \{ x \.{\in} stamped [ self ] \.{:} x
+ [ 4 ] \.{=} self \} \.{:}}%
+ \@x{\@s{31.61} \.{\land} \A\, mii \.{\in} received [ self ] \.{:} mi [ 3
+ ]\@s{0.62} \.{<} mii [ 3 ]}%
+ \@x{\@s{31.61} \.{\land} deliverable \.{'} \.{=} [ deliverable {\EXCEPT}
+ {\bang} [ self ] \.{=} deliverable [ self ] \.{\cup} \{ mi \} ]}%
+ \@x{\@s{16.4} \.{\land} \A\, msg \.{\in} deliverable [ self ] \.{:} \.{\land}
+ sentM \.{'} \.{=} sentM \.{\cup} \{ {\langle} self ,\,\@w{MESSAGE} {\rangle}
+ \}}%
+ \@x{\@s{16.4} \.{\land} stamped \.{'} \.{=} [ stamped {\EXCEPT} {\bang} [
+ self ] \.{=} stamped [ self ] \.{\,\backslash\,} deliverable [ self ] ]}%
+ \@x{\@s{16.4} \.{\land} {\UNCHANGED} {\langle} stamped ,\, sentM ,\, pc ,\,
+ LC ,\, deliverable ,\, received {\rangle}}%
 \@pvspace{8.0pt}%
 \@x{ Step ( self ) \.{\defeq}}%
-\@x{\@s{19.28} \.{\land} ReceivedMessage ( self )}%
-\@x{\@s{19.28} \.{\land} \.{\lor} UpponBCAST ( self )}%
- \@x{\@s{30.39} \.{\lor} {\UNCHANGED} {\langle} stamped ,\, received ,\, pc
- ,\, sentM ,\, sentTS ,\, deliverable {\rangle}}%
+\@x{\@s{19.28} \.{\lor} UpponBCAST ( self )}%
+\@x{\@s{19.28} \.{\lor} ReceivedMessage ( self )}%
+\@x{\@s{19.28} \.{\lor} ReceivedStamppedMessage ( self )}%
+ \@x{\@s{19.28} \.{\lor} {\UNCHANGED} {\langle} stamped ,\, received ,\, pc
+ ,\, sentM ,\, sentTS ,\, LC ,\, deliverable ,\, sequenceNumber {\rangle}}%
 \@pvspace{8.0pt}%
 \@x{ Next \.{\defeq} ( \E\, p \.{\in} Processes \.{:} Step ( p ) )}%
 \@pvspace{8.0pt}%
 \@x{ Spec\@s{1.46} \.{\defeq} Init \.{\land} {\Box} [ Next ]_{ vars}}%
- \@x{\@s{56.64} \.{\land} {\WF}_{ vars} ( \E\, p \.{\in} Processes \.{:}
- \.{\land} ReceivedMessage ( p )}%
-\@x{\@s{180.53} \.{\land} \.{\lor} UpponBCAST ( p )}%
- \@x{\@s{191.64} \.{\lor} {\UNCHANGED} {\langle} stamped ,\, received ,\, pc
- ,\, LC ,\, sentM ,\, sentTS ,\, deliverable {\rangle} )}%
 \@pvspace{8.0pt}%
 \@x{}\bottombar\@xx{}%
 \end{document}
