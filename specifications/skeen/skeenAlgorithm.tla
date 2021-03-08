@@ -1,74 +1,88 @@
 ---- MODULE skeenAlgorithm ----
-EXTENDS TLC, Naturals, FiniteSets
+EXTENDS TLC, Naturals, FiniteSets, Sequences
 
-CONSTANTS PROCESS_NUMBER
+CONSTANTS PROCESS_NUMBER, MAX_LC
 
-VARIABLES stamped, received, LC, deliverable, pc, sentM, sentTS, sequenceNumber
+VARIABLES pendingBuffer, deliveryBuffer, LC, pc, sent, sn, received
 
-vars  == << stamped, received, LC, deliverable, pc, sentM, sentTS, sequenceNumber >>
+vars  == << pendingBuffer, deliveryBuffer, LC, pc, sent, sn, received >>
 
 (*
     PC STATES:
 
-    BCAST = p send m to destinations
-    WAITING = p waiting
-
+    BCAST = TO-broadcast
+    PENDING = Wait all local timestamps
+    AC = TO-deliver
 *)
 
-ASSUME PROCESS_NUMBER \in Nat
+ASSUME PROCESS_NUMBER \in Nat /\ MAX_LC \in Nat 
 
 Processes == 1 .. PROCESS_NUMBER
 Message == {"MESSAGE"}
 
-Max(S) == CHOOSE t \in S : \A s \in S : t[3] >= s[3]
-
 Init ==
-  /\ stamped = [ i \in Processes |-> {}]
+  /\ pendingBuffer = [i \in Processes |-> {}]
+  /\ deliveryBuffer = [i \in Processes |-> {}]
   /\ received = [i \in Processes |-> {}]
-  /\ deliverable = [i \in Processes |-> {}]
   /\ pc \in [Processes -> {"BCAST", ""}]
-  /\ LC \in [Processes -> {0}]
-  /\ sentM = {}
-  /\ sentTS = {}
-  /\ sequenceNumber = 0
+  /\ LC \in [Processes -> 1 .. MAX_LC]
+  /\ sent = {}
+  /\ sn = 0
+
+Max(S) == CHOOSE t \in S : \A s \in S : t[3] >= s[3]
 
 UpponBCAST(self) ==
     /\ pc[self] = "BCAST"
-    /\ sentM' = sentM \cup {<<self, "MESSAGE">>}
     /\ pc' = [pc EXCEPT  ![self] = "PENDING"]
-    /\ UNCHANGED << stamped, deliverable, sentTS, LC, received, sequenceNumber >>
+    /\ sent' = sent \cup { <<self, "BCAST", "MESSAGE">> } (* << SOURCE, TYPE, MESSAGE >> *)
+    /\ LC' = LC
+    /\ UNCHANGED << LC, deliveryBuffer, sn, received >>
 
-    
-ReceivedMessage(self) ==
-    /\ sentM # {}
-    /\ \E msg \in sentM: 
-        /\ received' = [received EXCEPT ![self] = received[self] \cup {<<msg[1], msg[2], LC[self]>>}]
-        /\ sentTS' = sentTS \cup {<<self, "MESSAGE", LC[self], msg[1]>>}
-    \* /\ LC' = [LC EXCEPT  ![self] = LC[self] + 1]
-    /\ UNCHANGED << stamped, pc, deliverable, sentM, LC, sequenceNumber >>
+ReceivedBCASTMessage(self) ==
+    /\ \E msgs \in SUBSET { <<i, "BCAST", "MESSAGE">> : i \in Processes}:
+        /\ msgs \subseteq sent
+        /\ pendingBuffer' = [pendingBuffer EXCEPT ![self] = msgs]
 
+UpponBCASTMessage(self) ==
+    /\ pendingBuffer[self] # {}
+    /\ sent' = sent \cup {<<self, "TS", "MESSAGE", m[1], LC[self]>> : m \in pendingBuffer[self]}
+    /\ UNCHANGED <<LC, deliveryBuffer, received, pc, sn>>
 
-ReceivedStamppedMessage(self) ==
-    /\ pc[self] = "PENDING" /\ PROCESS_NUMBER = Cardinality({x \in sentTS: x[4] = self})
-    /\ Print(Max({x \in sentTS: x[4] = self}), TRUE)
-    /\ sentTS' = sentTS \ {x \in sentTS: x[4] = self}
-    /\ sequenceNumber' = Max({x \in sentTS: x[4] = self})[3]
-    /\ stamped' = [stamped EXCEPT ![self] = stamped[self] \cup {<<self, "MESSAGE", sequenceNumber>>}]
-    /\ \A mi \in {x \in stamped[self]: x[4] = self}:
-        /\ \A mii \in received[self]: mi[3] < mii[3]
-        /\ deliverable' = [deliverable EXCEPT ![self] = deliverable[self] \cup {mi}]
-    /\ \A msg \in deliverable[self]: /\ sentM' = sentM \cup {<<self, "MESSAGE">>}
-    /\ stamped' = [stamped EXCEPT ![self] = stamped[self] \ deliverable[self]]
-    /\ UNCHANGED << stamped, sentM, pc, LC, deliverable, received >>
+UpponAllTSMessage(self) ==
+    /\ pc[self] = "PENDING"
+    /\ PROCESS_NUMBER = Cardinality({m \in sent: (Len(m) = 4) /\ (m[4] = self) /\ (m[2] = "TS")})
+    /\ sn' = Max({m \in sent: (m[4] = self) /\ (m[2] = "TS")})
+    /\ sent' = sent \cup {<<self, "SN", "MESSAGE", sn>>}
+    /\ UNCHANGED <<LC, pc, received, deliveryBuffer, pendingBuffer>>
+
+ReceivedSNMessage(self) ==
+    /\ \E msgs \in SUBSET {<<i, "SN", "MESSAGE", sn>> : i \in Processes}:
+        /\ msgs \subseteq sent
+        /\ pendingBuffer'[self] = pendingBuffer[self] \ {<<i, "BCAST", "MESSAGE">> : i \in Processes}
+        /\ deliveryBuffer' = [deliveryBuffer EXCEPT ![self] = msgs]
 
 Step(self) ==
-    \/ UpponBCAST(self)
-    \/ ReceivedMessage(self)
-    \/ ReceivedStamppedMessage(self)
-    \/ UNCHANGED << stamped, received, pc, sentM, sentTS, LC, deliverable, sequenceNumber >>
+    /\ ReceivedBCASTMessage(self)
+    \* /\ ReceivedSNMessage(self)
+    /\  \/ UpponBCAST(self)
+        \/ UpponBCASTMessage(self)
+        \/ UpponAllTSMessage(self)
+        \/ UNCHANGED <<LC, deliveryBuffer, pc, received, sent, sn>>
 
-Next == (\E p \in Processes: Step(p))
+
+Next == (\E self \in Processes: Step(self))
 
 Spec == Init /\ [][Next]_vars
+             /\ WF_vars(\E self \in Processes: Step(self))
+
+(*  ---- PROPERTIES ---- *)
+
+(* AGREEMENT *)
+
+(* VALIDITY *)
+
+(* INTEGRITY *)
+
+(* TOTAL ORDER *)
 
 ====

@@ -115,11 +115,10 @@ func (node *Node) SendStamppedMessage(ctx context.Context, request *protos.SendS
 
 		err := node.Broadcast(func(conn protos.SkeenClient) error {
 			for _, d := range node.Deliverable {
-				_, err := node.SendStamppedMessage(context.TODO(), &protos.SendStamppedMessageRequest{
-					Id:        d.ID,
-					Message:   d.Message,
-					Owner:     d.Owner,
-					Timestamp: d.Timestamp,
+				_, err := node.SendMessage(context.TODO(), &protos.SendMessageRequest{
+					Id:      d.ID,
+					Message: d.Message,
+					Owner:   d.Owner,
 				})
 
 				if err != nil {
