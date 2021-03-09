@@ -35,41 +35,42 @@ UpponBCAST(self) ==
     /\ pc[self] = "BCAST"
     /\ pc' = [pc EXCEPT  ![self] = "PENDING"]
     /\ sent' = sent \cup { <<self, "BCAST", "MESSAGE">> } (* << SOURCE, TYPE, MESSAGE >> *)
-    /\ LC' = LC
-    /\ UNCHANGED << LC, deliveryBuffer, sn, received >>
+    /\ UNCHANGED << LC, deliveryBuffer, pendingBuffer, sn, received >>
+    
 
-ReceivedBCASTMessage(self) ==
+UpponBCASTMessage(self) ==
     /\ \E msgs \in SUBSET { <<i, "BCAST", "MESSAGE">> : i \in Processes}:
         /\ msgs \subseteq sent
         /\ pendingBuffer' = [pendingBuffer EXCEPT ![self] = msgs]
+        /\ sent' = sent \cup {<<self, "TS", "MESSAGE", m[1], LC[self]>> : m \in pendingBuffer[self]}
+        /\ UNCHANGED <<LC, deliveryBuffer, received, pc, sn>>
 
-UpponBCASTMessage(self) ==
-    /\ pendingBuffer[self] # {}
-    /\ sent' = sent \cup {<<self, "TS", "MESSAGE", m[1], LC[self]>> : m \in pendingBuffer[self]}
-    /\ UNCHANGED <<LC, deliveryBuffer, received, pc, sn>>
-
-ReceivedAllTSMessage(self) ==
+UpponAllTSMessage(self) ==
+    /\ pc[self] = "PENDING"
     /\ \E msgs \in SUBSET  { <<i, "TS", "MESSAGE", self, LC[i]>> : i \in Processes }:
         /\ msgs \subseteq sent
         /\ PROCESS_NUMBER = Cardinality(msgs)
         /\ sn' = Max(msgs)[5]
         /\ sent' = sent \cup {<<self, "SN", "MESSAGE", sn>>}
+        /\ UNCHANGED <<LC, deliveryBuffer, pc, received, pendingBuffer>>
 
-ReceivedSNMessage(self) ==
+UpponSNMessage(self) ==
     /\ \E msgs \in SUBSET {<<i, "SN", "MESSAGE", sn>> : i \in Processes}:
         /\ msgs \subseteq sent
-        /\ pendingBuffer'[self] = pendingBuffer[self] \ {<<i, "BCAST", "MESSAGE">> : i \in Processes}
+        /\ pendingBuffer' = [pendingBuffer EXCEPT ![self] = pendingBuffer[self] \ {<<i, "BCAST", "MESSAGE">> : i \in Processes}]
         /\ deliveryBuffer' = [deliveryBuffer EXCEPT ![self] = msgs]
+        /\ UNCHANGED <<LC, pc, received, sent, sn>>
+
+Deliver(self) ==
+    /\ TRUE
 
 Step(self) ==
-    /\ ReceivedBCASTMessage(self)
-    
-    \* /\ ReceivedSNMessage(self)
+    /\ Deliver(self)
     /\  \/ UpponBCAST(self)
         \/ UpponBCASTMessage(self)
-        \/ ReceivedAllTSMessage(self)
-        \* \/ UpponAllTSMessage(self)
-        \/ UNCHANGED <<LC, deliveryBuffer, pc, received, sent, sn>>
+        \/ UpponAllTSMessage(self)
+        \/ UpponSNMessage(self)
+        \/ UNCHANGED <<LC, deliveryBuffer, pendingBuffer, pc, received, sent, sn>>
 
 
 Next == (\E self \in Processes: Step(self))
