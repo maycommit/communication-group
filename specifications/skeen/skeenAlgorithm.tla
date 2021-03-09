@@ -29,7 +29,7 @@ Init ==
   /\ sent = {}
   /\ sn = 0
 
-Max(S) == CHOOSE t \in S : \A s \in S : t[3] >= s[3]
+Max(S) == CHOOSE t \in S : \A s \in S : t[5] >= s[5]
 
 UpponBCAST(self) ==
     /\ pc[self] = "BCAST"
@@ -48,12 +48,12 @@ UpponBCASTMessage(self) ==
     /\ sent' = sent \cup {<<self, "TS", "MESSAGE", m[1], LC[self]>> : m \in pendingBuffer[self]}
     /\ UNCHANGED <<LC, deliveryBuffer, received, pc, sn>>
 
-UpponAllTSMessage(self) ==
-    /\ pc[self] = "PENDING"
-    /\ PROCESS_NUMBER = Cardinality({m \in sent: (Len(m) = 4) /\ (m[4] = self) /\ (m[2] = "TS")})
-    /\ sn' = Max({m \in sent: (m[4] = self) /\ (m[2] = "TS")})
-    /\ sent' = sent \cup {<<self, "SN", "MESSAGE", sn>>}
-    /\ UNCHANGED <<LC, pc, received, deliveryBuffer, pendingBuffer>>
+ReceivedAllTSMessage(self) ==
+    /\ \E msgs \in SUBSET  { <<i, "TS", "MESSAGE", self, LC[i]>> : i \in Processes }:
+        /\ msgs \subseteq sent
+        /\ PROCESS_NUMBER = Cardinality(msgs)
+        /\ sn' = Max(msgs)[5]
+        /\ sent' = sent \cup {<<self, "SN", "MESSAGE", sn>>}
 
 ReceivedSNMessage(self) ==
     /\ \E msgs \in SUBSET {<<i, "SN", "MESSAGE", sn>> : i \in Processes}:
@@ -63,10 +63,12 @@ ReceivedSNMessage(self) ==
 
 Step(self) ==
     /\ ReceivedBCASTMessage(self)
+    
     \* /\ ReceivedSNMessage(self)
     /\  \/ UpponBCAST(self)
         \/ UpponBCASTMessage(self)
-        \/ UpponAllTSMessage(self)
+        \/ ReceivedAllTSMessage(self)
+        \* \/ UpponAllTSMessage(self)
         \/ UNCHANGED <<LC, deliveryBuffer, pc, received, sent, sn>>
 
 
