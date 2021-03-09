@@ -12,6 +12,7 @@ vars  == << pendingBuffer, deliveryBuffer, LC, pc, sent, sn, received >>
 
     BCAST = TO-broadcast
     PENDING = Wait all local timestamps
+    SN = Send sequence number to detinations
     AC = TO-deliver
 *)
 
@@ -51,13 +52,14 @@ UpponAllTSMessage(self) ==
         /\ msgs \subseteq sent
         /\ PROCESS_NUMBER = Cardinality(msgs)
         /\ sn' = Max(msgs)[5]
-        /\ sent' = sent \cup {<<self, "SN", "MESSAGE", sn>>}
-        /\ UNCHANGED <<LC, deliveryBuffer, pc, received, pendingBuffer>>
+        /\ sent' = sent \cup {<<self, "SN", "MESSAGE", sn'>>}
+        /\ pc' = [pc EXCEPT ![self] = "SN"]
+        /\ UNCHANGED <<LC, deliveryBuffer, received, pendingBuffer>>
 
 UpponSNMessage(self) ==
     /\ \E msgs \in SUBSET {<<i, "SN", "MESSAGE", sn>> : i \in Processes}:
         /\ msgs \subseteq sent
-        /\ pendingBuffer' = [pendingBuffer EXCEPT ![self] = pendingBuffer[self] \ {<<i, "BCAST", "MESSAGE">> : i \in Processes}]
+        /\ pendingBuffer' = [pendingBuffer EXCEPT ![self] = {<<i, "BCAST", "MESSAGE">> : i \in Processes} \ pendingBuffer[self]]
         /\ deliveryBuffer' = [deliveryBuffer EXCEPT ![self] = msgs]
         /\ UNCHANGED <<LC, pc, received, sent, sn>>
 
