@@ -113,25 +113,6 @@ func (node *Node) SendStamppedMessage(ctx context.Context, request *protos.SendS
 			}
 		}
 
-		err := node.Broadcast(func(conn protos.SkeenClient) error {
-			for _, d := range node.Deliverable {
-				_, err := node.SendMessage(context.TODO(), &protos.SendMessageRequest{
-					Id:      d.ID,
-					Message: d.Message,
-					Owner:   d.Owner,
-				})
-
-				if err != nil {
-					return err
-				}
-			}
-
-			return nil
-		})
-		if err != nil {
-			return &protos.Any{}, nil
-		}
-
 		stamppedDiff, _ := funk.Difference(node.StamppedMessages, node.Deliverable)
 		node.StamppedMessages = stamppedDiff.([]StamppedMessage)
 
