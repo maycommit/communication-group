@@ -116,10 +116,6 @@ func (node *Node) SendStamppedMessage(ctx context.Context, request *protos.SendS
 		stamppedDiff, _ := funk.Difference(node.StamppedMessages, node.Deliverable)
 		node.StamppedMessages = stamppedDiff.([]StamppedMessage)
 
-		// node.StamppedMessages = funk.Filter(node.StamppedMessages, func(st StamppedMessage) bool {
-		// 	return !funk.Contains(deliverable, st.ID)
-		// }).([]StamppedMessage)
-
 		delete(node.ReceivedBuffer, request.Id)
 	}
 

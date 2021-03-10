@@ -16,7 +16,7 @@ vars  == << pendingBuffer, deliveryBuffer, LC, pc, sent, sn, received >>
     AC = TO-deliver
 *)
 
-ASSUME PROCESS_NUMBER \in Nat /\ MAX_LC \in Nat 
+ASSUME PROCESS_NUMBER \in Nat /\ MAX_LC \in Nat
 
 Processes == 1 .. PROCESS_NUMBER
 Message == {"MESSAGE"}
@@ -32,36 +32,34 @@ Init ==
 
 Max(S) == CHOOSE t \in S : \A s \in S : t[5] >= s[5]
 
+\* Pool de msgs
+\* LC de verdade
+
 UpponBCAST(self) ==
     /\ pc[self] = "BCAST"
     /\ pc' = [pc EXCEPT  ![self] = "PENDING"]
     /\ sent' = sent \cup { <<self, "BCAST", "MESSAGE">> } (* << SOURCE, TYPE, MESSAGE >> *)
     /\ UNCHANGED << LC, deliveryBuffer, pendingBuffer, sn, received >>
     
-
 UpponBCASTMessage(self) ==
-    /\ \E msgs \in SUBSET { <<i, "BCAST", "MESSAGE">> : i \in Processes}:
-        /\ msgs \subseteq sent
-        /\ pendingBuffer' = [pendingBuffer EXCEPT ![self] = msgs]
-        /\ sent' = sent \cup {<<self, "TS", "MESSAGE", m[1], LC[self]>> : m \in pendingBuffer[self]}
+    /\ \E msg \in {m \in sent: m[2] = "BCAST"}:
+        /\ pendingBuffer' = [pendingBuffer EXCEPT ![self] = pendingBuffer[self] \cup { msg }]
+        /\ sent' = sent \cup {<<self, "TS", "MESSAGE", msg[1], LC[self]>>}
         /\ UNCHANGED <<LC, deliveryBuffer, received, pc, sn>>
 
 UpponAllTSMessage(self) ==
     /\ pc[self] = "PENDING"
-    /\ \E msgs \in SUBSET  { <<i, "TS", "MESSAGE", self, LC[i]>> : i \in Processes }:
-        /\ msgs \subseteq sent
-        /\ PROCESS_NUMBER = Cardinality(msgs)
-        /\ sn' = Max(msgs)[5]
-        /\ sent' = sent \cup {<<self, "SN", "MESSAGE", sn'>>}
-        /\ pc' = [pc EXCEPT ![self] = "SN"]
-        /\ UNCHANGED <<LC, deliveryBuffer, received, pendingBuffer>>
+    /\ LET msgs == {m \in sent: m[2] = "TS" /\ m[4] = self}
+        IN  /\ PROCESS_NUMBER = Cardinality(msgs)
+            /\ sent' = sent \cup {<<self, "SN", "MESSAGE", Max(msgs)[5]>>}
+            /\ pc' = [pc EXCEPT ![self] = "SN"]
+            /\ UNCHANGED <<LC, deliveryBuffer, received, pendingBuffer, sn>>
 
 UpponSNMessage(self) ==
-    /\ \E msgs \in SUBSET {<<i, "SN", "MESSAGE", sn>> : i \in Processes}:
-        /\ msgs \subseteq sent
-        /\ pendingBuffer' = [pendingBuffer EXCEPT ![self] = {<<i, "BCAST", "MESSAGE">> : i \in Processes} \ pendingBuffer[self]]
-        /\ deliveryBuffer' = [deliveryBuffer EXCEPT ![self] = msgs]
-        /\ UNCHANGED <<LC, pc, received, sent, sn>>
+    /\ LET msgs == {m \in sent: m[2] = "SN"}
+        IN  /\ pendingBuffer' = [pendingBuffer EXCEPT ![self] = {<<i, "BCAST", "MESSAGE">> : i \in Processes} \ pendingBuffer[self]]
+            /\ deliveryBuffer' = [deliveryBuffer EXCEPT ![self] = msgs]
+            /\ UNCHANGED <<LC, pc, received, sent, sn>>
 
 Deliver(self) ==
     /\ TRUE
