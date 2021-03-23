@@ -1,102 +1,76 @@
 ---- MODULE skeenAlgorithm ----
 EXTENDS TLC, Naturals, FiniteSets, Sequences
 
-CONSTANTS PROCESS_NUMBER, MAX_LC
+CONSTANTS NPROCESS
 
-VARIABLES pendingBuffer, deliveryBuffer, LC, pc, sent, received, messages
+VARIABLES pc, sentTS, sentSN, sentM, pendingBuffer, deliveryBuffer, LC, messages
 
-vars  == << pendingBuffer, deliveryBuffer, LC, pc, sent, received, messages >>
+vars == << pendingBuffer, deliveryBuffer, pc, sentM, sentTS, sentSN, messages, LC >>
 
-(*
-    PC STATES:
+vars1 == << pendingBuffer, deliveryBuffer, pc, sentM, sentTS, sentSN, messages >>
 
-    BCAST = TO-broadcast
-    PENDING = Wait all local timestamps
-    SN = Send sequence number to detinations
-    AC = TO-deliver
-*)
-
-ASSUME PROCESS_NUMBER \in Nat /\ MAX_LC \in Nat
-
-Processes == 1 .. PROCESS_NUMBER
-Messages == {"MESSAGE1"}
+Processes == 1 .. NPROCESS
 
 Init ==
-  /\ pendingBuffer = [i \in Processes |-> {}]
-  /\ deliveryBuffer = [i \in Processes |-> {}]
-  /\ received = [i \in Processes |-> {}]
-  /\ messages = [i \in Processes |-> Messages]
-  /\ pc \in [Processes -> {"BCAST", ""}]
-  /\ LC \in [Processes -> 1 .. MAX_LC]
-  /\ sent = {}
+    /\ messages = {"M1", "M2", "M3"}
+    /\ pendingBuffer = [i \in Processes |-> {}]
+    /\ deliveryBuffer = [i \in Processes |-> {}]
+    /\ pc \in [Processes -> {"BCAST", ""}]
+    /\ LC = [i \in  Processes |-> 0]
+    /\ sentM = {}
+    /\ sentTS = {}
+    /\ sentSN = {}
 
-Max(S) == CHOOSE t \in S : \A s \in S : t[5] >= s[5]
-
-\* LC de verdade
 UpponBCAST(self) ==
-    /\ (pc[self] = "BCAST") /\ (messages[self] # {})
-    /\ LET msg == CHOOSE msg \in messages[self] : TRUE
-        IN  /\ sent' = sent \cup {<<self, "BCAST", msg>>}
-            /\ messages' = [messages EXCEPT ![self] = messages[self] \ {msg}]
-            /\ UNCHANGED << LC, deliveryBuffer, pendingBuffer, pc >>
+    /\ pc[self] = "BCAST"
+    /\ LET m == CHOOSE m \in messages: TRUE
+        IN  /\ sentM' = sentM \cup { <<self, m>> }
+            /\ messages' = messages \ { m }
+    /\ pc' = [pc EXCEPT ![self] = "PENDING"]
+    /\ UNCHANGED << LC, sentTS, sentSN, deliveryBuffer, pendingBuffer >>
 
-UpponSendAllMenssages(self) ==
-    /\ (pc[self] = "BCAST") /\ (messages[self] = {})
-    /\ pc' = [pc EXCEPT  ![self] = "PENDING"]
-    /\ UNCHANGED <<LC, deliveryBuffer, pendingBuffer, messages, sent>>
-    
-UpponBCASTMessage(self) ==
-    /\ \E msg \in {m \in sent: m[2] = "BCAST"}:
+ReceivedM(self) ==
+    /\ \E msg \in sentM:
+        /\ msg \notin pendingBuffer[self]
         /\ pendingBuffer' = [pendingBuffer EXCEPT ![self] = pendingBuffer[self] \cup { msg }]
-        /\ sent' = sent \cup {<<self, "TS", msg[2], msg[1], LC[self]>>}
-        /\ UNCHANGED <<LC, deliveryBuffer, pc, messages>>
+        /\ LC' = [LC EXCEPT ![self] = LC[self] + 1]
+        \* <<source, destination, message, timestamp>>
+        /\ sentTS' = sentTS \cup {<<self, msg[1], msg[2], LC[self]>>}
+        /\ UNCHANGED <<pc, sentSN, messages, deliveryBuffer, sentM>>
 
-UpponAllTSMessage(self) ==
+Max(S) == CHOOSE t \in S : \A s \in S : s[4] <= t[4]
+
+ReceivedTS(self) ==
     /\ pc[self] = "PENDING"
-    /\ LET msgs == {m \in sent: m[2] = "TS" /\ m[4] = self}
-        IN  /\ PROCESS_NUMBER = Cardinality(msgs)
-            /\ sent' = sent \cup {<<self, "SN", "MESSAGE", Max(msgs)[5]>>}
+    /\ LET msgs == { m \in sentTS: m[2] = self }
+        IN  /\ NPROCESS = Cardinality(msgs)
+            /\ LET m == CHOOSE m \in msgs: TRUE
+                IN /\ sentSN' = sentSN \cup {<<self, m[3], Max(msgs)[4]>>}
+            /\ sentM' = sentM \ { <<m[2], m[3]>> : m \in sentTS }
+            /\ Print("RECEIVE ALL", TRUE)
             /\ pc' = [pc EXCEPT ![self] = "SN"]
-            /\ UNCHANGED <<LC, deliveryBuffer, pendingBuffer, messages>>
+    /\ UNCHANGED <<LC, deliveryBuffer, pendingBuffer, messages, sentTS>>
 
-
-\* Verificar inconsistencia aqui
-UpponSNMessage(self) ==
-    /\ LET msgs == {m \in sent: m[2] = "SN"}
-        IN  /\ pendingBuffer' = [pendingBuffer EXCEPT ![self] = {<<i, "BCAST", "tftft">> : i \in Processes} \ pendingBuffer[self]]
-            /\ deliveryBuffer' = [deliveryBuffer EXCEPT ![self] = msgs]
-            /\ UNCHANGED <<LC, pc, sent, messages>>
-
-\* tudo do delivery buffer é entregavel
-
-Deliver(self) ==
-    /\ received' = [received EXCEPT ![self] = pendingBuffer[self]]
-
+ReceivedSNMessage(self) ==
+    /\ \E msg \in sentSN:
+        /\ msg \notin deliveryBuffer[self]
+        /\ pendingBuffer' = [pendingBuffer EXCEPT ![self] = pendingBuffer[self] \ {<<msg[1], msg[2]>>}]
+        /\ deliveryBuffer' = [deliveryBuffer EXCEPT ![self] = deliveryBuffer[self] \cup {msg}]
+        /\ UNCHANGED <<LC, pc, sentM, sentTS, sentSN, messages>>
 
 
 Step(self) ==
-    /\ Deliver(self)
-    /\  \/ UpponBCAST(self)
-        \/ UpponSendAllMenssages(self)
-        \/ UpponBCASTMessage(self)
-        \/ UpponAllTSMessage(self)
-        \/ UpponSNMessage(self)
-        \/ UNCHANGED <<LC, deliveryBuffer, pendingBuffer, pc, sent, messages>>
+    \/ UpponBCAST(self)
+    \/ ReceivedM(self)
+    \/ ReceivedTS(self)
+    \/ ReceivedSNMessage(self)
+    \/ UNCHANGED vars
 
 
 Next == (\E self \in Processes: Step(self))
 
-Spec == Init /\ [][Next]_vars
-             /\ WF_vars(\E self \in Processes: Step(self))
+Fairness == WF_vars1(\E self \in Processes: Step(self))
 
-(*  ---- PROPERTIES ---- *)
-
-(* AGREEMENT *)
-
-(* VALIDITY *)
-
-(* INTEGRITY *)
-
-(* TOTAL ORDER *)
+Spec == Init /\ [][Next]_vars /\ Fairness
 
 ====
