@@ -7,12 +7,13 @@ VARIABLES pc, sentTS, sentSN, sentM, pendingBuffer, deliveryBuffer, LC, messages
 
 vars == << pendingBuffer, deliveryBuffer, pc, sentM, sentTS, sentSN, messages, LC >>
 
-vars1 == << pendingBuffer, deliveryBuffer, pc, sentM, sentTS, sentSN, messages >>
 
 Processes == 1 .. NPROCESS
 
+Messages == {"M1", "M2"}
+
 Init ==
-    /\ messages = {"M1", "M2", "M3"}
+    /\ messages = Messages
     /\ pendingBuffer = [i \in Processes |-> {}]
     /\ deliveryBuffer = [i \in Processes |-> {}]
     /\ pc \in [Processes -> {"BCAST", ""}]
@@ -21,13 +22,17 @@ Init ==
     /\ sentTS = {}
     /\ sentSN = {}
 
-UpponBCAST(self) ==
+UpponBCAST(self, msg) ==
     /\ pc[self] = "BCAST"
-    /\ LET m == CHOOSE m \in messages: TRUE
-        IN  /\ sentM' = sentM \cup { <<self, m>> }
-            /\ messages' = messages \ { m }
+    \* /\ <<self, msg>> \notin sentM
+    /\ sentM' = sentM \cup { <<self, msg>> }
+    /\ UNCHANGED << LC, sentTS, sentSN, deliveryBuffer, pendingBuffer, messages, pc >>
+
+UpponSentM(self) ==
+    /\ pc[self] = "BCAST"
+    /\ Cardinality({ m \in sentM: m[1] = self }) = Cardinality(Messages)
     /\ pc' = [pc EXCEPT ![self] = "PENDING"]
-    /\ UNCHANGED << LC, sentTS, sentSN, deliveryBuffer, pendingBuffer >>
+    /\ UNCHANGED << LC, sentTS, sentSN, deliveryBuffer, pendingBuffer, sentM, messages >>
 
 ReceivedM(self) ==
     /\ \E msg \in sentM:
@@ -59,18 +64,27 @@ ReceivedSNMessage(self) ==
         /\ UNCHANGED <<LC, pc, sentM, sentTS, sentSN, messages>>
 
 
-Step(self) ==
-    \/ UpponBCAST(self)
+Step(self, msg) ==
+    \/ UpponBCAST(self, msg)
+    \/ UpponSentM(self)
     \/ ReceivedM(self)
     \/ ReceivedTS(self)
     \/ ReceivedSNMessage(self)
     \/ UNCHANGED vars
 
 
-Next == (\E self \in Processes: Step(self))
+Next == (\E self \in Processes: \E msg \in Messages: Step(self, msg))
 
-Fairness == WF_vars1(\E self \in Processes: Step(self))
+Fairness == WF_vars(Next)
 
 Spec == Init /\ [][Next]_vars /\ Fairness
+
+Agreement == ()
+
+Validity == ()
+
+Integrity == ()
+
+TotalOrder == ()
 
 ====
